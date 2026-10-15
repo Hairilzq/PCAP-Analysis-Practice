@@ -4,4 +4,5 @@ I am using this repo to store and document my learning on PCAP analysis, organis
 # Index
 Here are short descriptions for each exercise I did, covering the main thing I took away from it. Helps to navigate the files I have stored here as well
 
-## File 1
+## Case-1_Read-The-Room
+Technical exercise for SCC 2026. An internal endpoint 192.168.10.55 was compromised via a malicious HTA payload disguised as an invoice. The adversary established HTTP C2 beaconing, executed DNS exfiltration of local host processes, and staged collected data before issuing a self-cleanup command.

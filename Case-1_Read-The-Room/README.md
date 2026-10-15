@@ -3,7 +3,7 @@ For my very first PCAP analysis exercise in this repo, I will analyse and docume
 
 # Detailed Summary
 
-The attacker comprimises an internal host machine, `192.168.10.55`, and connects to an external domain `secure-invoice.cdn-delivery.net` to retrieve a **VBScript** disguised as a regular file `Invoice_Apr2025.pdf.hta`. The attacker then executes this script to plant a **C2 agent** into the comprimised machine. The **C2 agent** establishes three separate sessions through **HTTP** to the attacker's **C2 server** over **port 443** to maintain persistence and await commands. Afterwards, the attacker uses a process discovery command `tasklist.exe` to read the **running processes** on the comprimised machine, and return its findings to the **C2 server** through an exfiltration method known as **Out-Of-Band DNS Exfiltration**, hex-encoding the process names to evade detection. The atacker then performs **Internal Reconnaisance** of the internal network to find other active hosts to infect, using a **SYN scan** to enumerate three separate IPs, `13.107.6.156`, `52.113.194.132`, and `20.112.52.29` and a **ARP Scan** of IPs `192.168.10.1-192.168.10.12` to discover other active hosts. The attacker attempts to perform **Lateral Movement** to another internal machine, `192.168.10.20`, through an **SMB** connection using a **malformed packet**, but was likely unsuccessful. The attacker then stages collected data into a `.zip` file (**512 Bytes in size**), to which it is exfiltrated to the **C2 server** over **port 443** using a **HTTP POST method**. Lastly, the attacker issues a **Cleanup** command to the **C2 agent** to remove its persistence on the comprimised machine, performing a **Sinkhole Check** to ensure that it isn't being monitored.
+The attacker compromises an internal host machine, `192.168.10.55`, and connects to an external domain `secure-invoice.cdn-delivery.net` to retrieve a **VBScript** disguised as a regular file `Invoice_Apr2025.pdf.hta`. The attacker then executes this script to plant a **C2 agent** into the compromised machine. The **C2 agent** establishes three separate sessions through **HTTP** to the attacker's **C2 server** over **port 443** to maintain persistence and await commands. Afterwards, the attacker uses a process discovery command `tasklist.exe` to read the **running processes** on the comprimised machine, and return its findings to the **C2 server** through an exfiltration method known as **Out-Of-Band DNS Exfiltration**, hex-encoding the process names to evade detection. The atacker then performs **Internal Reconnaisance** of the internal network to find other active hosts to infect, using a **SYN scan** to enumerate three separate IPs, `13.107.6.156`, `52.113.194.132`, and `20.112.52.29` and a **ARP Scan** of IPs `192.168.10.1-192.168.10.12` to discover other active hosts. The attacker attempts to perform **Lateral Movement** to another internal machine, `192.168.10.20`, through an **SMB** connection using a **malformed packet**, but was likely unsuccessful. The attacker then stages collected data into a `.zip` file (**512 Bytes in size**), to which it is exfiltrated to the **C2 server** over **port 443** using a **HTTP POST method**. Lastly, the attacker issues a **Cleanup** command to the **C2 agent** to remove its persistence on the compromised machine, performing a **Sinkhole Check** to ensure that it isn't being monitored.
 
 # Walkthrough of Analysis
 To start, the PCAP file is really small at only **162 packets**. The attack was simulated in a VM environment and as such there is no typical network traffic noise found in real enterprise-scale networks. This makes for a very easy analysis as every packet (sent by the attacker) has a clear motive behind them. I will still include filters I used, as these can be used in other analysis cases.
@@ -12,17 +12,18 @@ To start, the PCAP file is really small at only **162 packets**. The attack was 
 - `ip.addr == 192.168.10.55` (filter for comprimised host activities)
 - `ip.addr == 203.0.113.99` (filter for external C2 Server activities)
 
-### Attacker IP/Comprimised IP/Active IPs
+### Attacker IP/Compromised IP/Active IPs
 | IP Address | Role | Packet Count (with that IP) |
 |---|---|---|
-| `192.168.10.55` | Comprimised internal machine | 144  (100%) |
+| `192.168.10.55` | Compromised internal machine | 144  (100%) |
 | `203.0.113.99` | External machine (attacker) | 64 (44%) |
 | `8.8.8.8` | Public DNS server | 52 (36%) |
+
 Statistics provided by Wireshark
 
 ![Wireshark Statistics](Case-1_Images/Statistics.png)
 
-The biggest red flag is the abnormal amount of activity coming from a single IP in the network, that is `192.168.10.55`. I have marked this to be the infected host. The point of entry is unknown.
+The biggest red flag is the abnormal amount of activity coming from a single IP in the network, that is `192.168.10.55`. I have marked this to be the **Compromised Machine**. The point of entry is unknown.
 `203.0.113.99` is an external machine which I have marked to be the attacker's **C2 server**, which we will see the evidence for it soon. There are more external IPs which we will see soon as well. Lastly, `8.8.8.8` is likely the **Public DNS server** used by the attacker for DNS queries
 
 ### Phase 1: Payload Execution
@@ -44,17 +45,17 @@ o.Run "powershell -nop -w hidden -enc SQBFAFgAKAB...",0
 
 The script seems to spawn a **hidden PowerShell process** running an encoded payload. Performing a quick search online shows that:
 - `Set o=CreateObject("WScript.Shell")`: Spawns the host shell object, allowing the script to execute commands directly on the host (which we will see later)
-- `-nop`: Performs the Powershell execution without loading up a local user profile on the comprimised machine
-- `-w hidden`: Stops the terminal window from popping up on the comprimised machine's screen (in case a user is active)
+- `-nop`: Performs the Powershell execution without loading up a local user profile on the compromised machine
+- `-w hidden`: Stops the terminal window from popping up on the compromised machine's screen (in case a user is active)
 - `-enc SQBFAFgAKAB...`: Takes in a Base64-encoded string, which decodes to `IEX` (Invoke-Expression)
 - `,0`: Second parameter to set the window state to invisible
 
-This is the script used by the attacker to plant the **C2 agent** into the comprimised machine, which allows the attacker to remotely execute commands on it.
+This is the script used by the attacker to plant the **C2 agent** into the compromised machine, which allows the attacker to remotely execute commands on it.
 
 ![Payload Details](Case-1_Images/Payload-Details.png)
 
 ### Phase 2: C2 Session Establishment
-Using the Powershell script, the attacker then initiates 3 separate **unencrypted** sessions over **port 443** on the **C2 server** (`203.0.113.99`). I have identified this to be the **C2 beaconing**, which is when the comprimised machine maintains contact with the **C2 server** awaiting the attacker's next commands.
+Using the Powershell script, the attacker then initiates 3 separate **unencrypted** sessions over **port 443** on the **C2 server** (`203.0.113.99`). I have identified this to be the **C2 beaconing**, which is when the compromised machine maintains contact with the **C2 server** awaiting the attacker's next commands.
 
 #### Filters: 
 - `frame.len == 280` (filter for the three beaconing sessions)
@@ -110,7 +111,7 @@ The above shows a series of SYN scans, three of which are directed to these IPs 
 - `52.113.194.132`
 - `20.112.52.29`
 
-None of them returned a reply. Im unsure as to what these IPs are, I could only assume them to be internal IPs within the target network. As these were SYN packets, a lack of reply most likely means that a firewall is intercepting the packet and dropping it. The only reply came from the attacker's own C2 server.
+A quick search shows that these are **Microsoft Public Infrastructure**, belonging to **Microsoft Office 365**, and **Azure** services. None of them returned a reply. As these were SYN packets, a lack of reply most likely means that a firewall is intercepting the packet and dropping it. The only reply came from the attacker's own C2 server.
 
 #### Filter:
 - `arp && ip.src == 192.168.10.55` (isolate ARP broadcasts from the comprimised machine)
